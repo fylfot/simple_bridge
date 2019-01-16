@@ -100,7 +100,11 @@ make_nocatch(Module, RequestData) ->
             %% But if it's not a multipart post, then we need to manually tell
             %% simple bridge to cache the post params in the wrapper for quick
             %% lookup
-            sbw:cache_post_params(Bridge);
+            try
+                sbw:cache_post_params(Bridge)
+            catch
+                error:function_clause -> Bridge
+            end;
         {error, Error} -> 
             Bridge:set_error(Error)
     end.
