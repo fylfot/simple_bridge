@@ -35,7 +35,7 @@ init([]) ->
 
     cowboy:start_clear(http, [{ip, IP}, {port, Port}], Opts),
 
-    {ok, { {one_for_one, 5, 10}, []}}.
+    {ok, { {one_for_one, 20, 50}, []}}.
 
 
 %% @doc Generates the dispatch based on the desired environment
