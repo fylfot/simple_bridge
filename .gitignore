@@ -7,8 +7,14 @@ erl_crash.dump
 test/logs/*
 logs
 crypto_compat.hrl
+compat.hrl
 log/
 test/app.config
 logs/
 rebar.test.*.config
 .deps_plt
+/ebin/
+/.settings/
+/.project
+.idea
+.rebar

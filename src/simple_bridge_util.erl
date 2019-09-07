@@ -20,6 +20,9 @@
     binarize_header/1,
     is_static_path/2,
     expires/2,
+    make_expires_from_seconds/1,
+    maybe_to_list/1,
+    maybe_to_binary/1,
     to_list/1,
     to_binary/1,
     has_header/2,
@@ -31,7 +34,8 @@
     ensure_expires_header/1,
     needs_expires_header/1,
     parse_ip/1,
-    parse_cookie_header/1
+    parse_cookie_header/1,
+    create_cookie_header/1
 ]).
 
 -type header_key() :: string() | binary() | atom().
@@ -221,7 +225,7 @@ ensure_expires_header(HeaderList) ->
     
 -spec needs_expires_header(header_list()) -> boolean().
 needs_expires_header(HeaderList) ->
-    not(has_any_header(HeaderList,["Expires","Cache-Control"])).
+    not(has_any_header(HeaderList,[<<"expires">>,<<"cache-control">>])).
 
 -spec has_header(header_list(), header_key()) -> boolean().
 has_header(HeaderList,Header) ->
@@ -254,11 +258,11 @@ to_lower(Header) when is_list(Header) ->
 default_static_expires_header() ->
     case application:get_env(simple_bridge,default_expires) of
         {ok, immediate} ->
-            {"Cache-control","no-cache"};
+            {<<"cache-control">>,<<"no-cache">>};
 
         {ok, Seconds} when is_integer(Seconds) ->
             Expires = expires(seconds,Seconds),
-            {"Expires", Expires};
+            {<<"expires">>, Expires};
 
         {ok, {Unit, Value}} when Unit==years orelse 
                                  Unit==months orelse
@@ -268,10 +272,10 @@ default_static_expires_header() ->
                                  Unit==minutes orelse
                                  Unit==seconds ->
             Expires = expires(Unit,Value),
-            {"Expires", Expires};
+            {<<"expires">>, Expires};
         _ -> 
             Expires = expires(years,10),
-            {"Expires", Expires}
+            {<<"expires">>, Expires}
     end.
 
 -type unit_of_time() :: years|months|weeks|days|hours|minuites|seconds.
@@ -298,6 +302,18 @@ make_expires_from_seconds(Seconds) ->
     httpd_util:rfc1123_date(ExpiresDate).
 
 
+-spec maybe_to_list(any()) -> string() | undefined.
+maybe_to_list(undefined) ->
+    undefined;
+maybe_to_list(Val) ->
+    to_list(Val).
+
+-spec maybe_to_binary(iolist() | atom() | binary()) -> binary() | undefined.
+maybe_to_binary(undefined) ->
+    undefined;
+maybe_to_binary(Val) ->
+    to_binary(Val).
+
 -spec to_list(any()) -> string().
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
@@ -315,8 +331,6 @@ to_binary(L) ->
     iolist_to_binary(L).
 
 
-
-%% This is borrowed from Nitrogen
 parse_ip(IP = {_,_,_,_}) ->
     IP;
 parse_ip(IP = {_,_,_,_,_,_,_,_}) ->
@@ -345,3 +359,32 @@ parse_cookie_header(CookieData) ->
         end
     end,
     [F(X) || X <- string:tokens(CookieData, ";")].
+
+create_cookie_header(#cookie{name=Name, value=Value, max_age=MaxAge,
+                            secure=Secure, domain=Domain, path=Path,
+                            http_only=HttpOnly}) ->
+    HeaderVal = [
+        to_binary(Name),"=",to_binary(Value),
+        create_cookie_expires(MaxAge),
+        create_cookie_secure(Secure),
+        create_cookie_domain(Domain),
+        create_cookie_path(Path),
+        create_cookie_http_only(HttpOnly)
+    ],
+    {<<"set-cookie">>, HeaderVal}.
+
+create_cookie_expires(MaxAge) ->
+    Expires = make_expires_from_seconds(MaxAge),
+    [<<"; expires=">>,Expires].
+
+create_cookie_secure(true) -> <<"; secure">>;
+create_cookie_secure(_) -> "".
+
+create_cookie_domain(undefined) -> <<"">>;
+create_cookie_domain(Domain) -> [<<"; domain=">>, Domain].
+
+create_cookie_path(undefined) -> <<"">>;
+create_cookie_path(Path) -> [<<"; path=">>, Path].
+
+create_cookie_http_only(true) -> <<"; httponly">>;
+create_cookie_http_only(_) -> <<"">>.

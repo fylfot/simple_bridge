@@ -21,14 +21,13 @@
     request_body/1,
     socket/1,
     recv_from_socket/3,
-    protocol_version/1
+    protocol_version/1,
+    native_header_type/0
 ]).
 
 -export([
-        build_response/2
+    build_response/2
 ]).
-
-%% TODO: CONVERT ALL CALLS TO NON-PMOD CALLS
 
 %% Max Body of 10MB by default
 %% NOTE: It seems to be common for folks to manually override this directly in
@@ -76,7 +75,9 @@ peer_port(Req) ->
     Socket = mochiweb_request:get(socket, Req),
     {ok, {_IP, Port}} = mochiweb_socket:peername(Socket),
     Port.
-    
+
+native_header_type() -> list.
+
 headers(Req) ->
     Headers = mochiweb_request:get(headers, Req),
     mochiweb_headers:to_list(Headers).
@@ -139,19 +140,24 @@ build_response(Req, Res) ->
         {data, Body} ->
             % Send the mochiweb response...
             Headers2 = simple_bridge_util:ensure_header(Headers,{"Content-Type","text/html"}),
-            mochiweb_request:respond({Code, Headers2, Body}, Req);
+            Response = {Code, Headers2, Body},
+            mochiweb_request:respond(Response, Req);
         {file, Path} ->
             %% Create the response telling Mochiweb to serve the file...
             Headers2 = simple_bridge_util:ensure_expires_header(Headers),
             DocRoot = simple_bridge_util:get_docroot(mochiweb),
             mochiweb_request:serve_file(tl(Path), DocRoot, Headers2, Req)
-    end.
-
-
+    end,
+    ok.
 
 create_cookie_header(Cookie) ->
-    SecondsToLive = Cookie#cookie.minutes_to_live * 60,
     Name = Cookie#cookie.name,
     Value = Cookie#cookie.value,
-    Path = Cookie#cookie.path,
-    mochiweb_cookies:cookie(Name, Value, [{path, Path}, {max_age, SecondsToLive}]).
+    Options = [
+               {domain, Cookie#cookie.domain},
+               {path, Cookie#cookie.path},
+               {max_age, Cookie#cookie.max_age},
+               {secure, Cookie#cookie.secure},
+               {http_only, Cookie#cookie.http_only}
+              ],
+    mochiweb_cookies:cookie(Name, Value, Options).

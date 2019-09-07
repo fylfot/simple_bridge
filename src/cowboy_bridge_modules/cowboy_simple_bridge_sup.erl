@@ -20,10 +20,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    application:start(crypto),
-    application:start(ranch),
-    application:start(cowlib),
-    application:start(cowboy),
+    application:ensure_all_started(cowboy),
     {Address, Port} = simple_bridge_util:get_address_and_port(cowboy),
     IP = simple_bridge_util:parse_ip(Address),
 
@@ -33,12 +30,10 @@ init([]) ->
     Dispatch = generate_dispatch(),
     io:format("Using Cowboy Dispatch Table:~n  ~p~n",[Dispatch]),
 
-    Opts = [
-        {env, [{dispatch, Dispatch}]},
-        {max_keepalive, 100}
-    ],
+    Opts = #{env => #{dispatch => Dispatch},
+             max_keepalive => 100},
 
-    cowboy:start_http(http, 100, [{ip, IP}, {port, Port}], Opts),
+    cowboy:start_clear(http, [{ip, IP}, {port, Port}], Opts),
 
     {ok, { {one_for_one, 5, 10}, []}}.
 

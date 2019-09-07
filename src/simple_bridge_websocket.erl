@@ -15,7 +15,6 @@
 
 %-compile(export_all).
 -include("simple_bridge.hrl").
--include("crypto_compat.hrl").
 
 -define(else, true).
 
@@ -438,11 +437,8 @@ append_frame_data_and_parse_remainder(F = #frame{payload_len=PayloadLen, mask_ke
             [F#frame{data=Unmasked} | parse_frame(RemainingData)]
     end.
 
-%%apply_mask(<<Mask:32>>, Data) ->
-%%    apply_mask(Mask, Data);
 apply_mask(Mask, Data) ->
-    {_Time, Unmasked} = timer:tc(fun apply_mask/3, [Mask, Data,<<>>]),
-    Unmasked.
+    apply_mask(Mask, Data, <<>>).
 
 apply_mask(_, <<>>, Acc) ->
     Acc;

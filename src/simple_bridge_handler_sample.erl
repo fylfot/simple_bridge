@@ -1,6 +1,12 @@
 %% vim: ts=4 sw=4 et
 -module(simple_bridge_handler_sample).
 -behaviour(simple_bridge_handler).
+
+%% This next line is only because of the erlang:get_stacktrace call below.
+%% As the try/catch semantics changed in Erlang 21, this is kept for backwards
+%% compatibility.  Feel free to remove this parse transform, if you wish.
+-compile({parse_transform, stacktrace_transform}).
+
 -export([run/1,
         ws_init/1,
         ws_message/3,
@@ -10,8 +16,8 @@
 
 run(Bridge) ->
     try
-        Bridge2 = Bridge:set_response_data(body(Bridge)),
-        Bridge2:build_response()
+        Bridge2 = sbw:set_response_data(body(Bridge), Bridge),
+        sbw:build_response(Bridge2)
     catch E:C ->
         error_logger:error_msg("~p:~p: ~p",[E, C, erlang:get_stacktrace()]),
         exit("Error building response")

@@ -1,11 +1,14 @@
 language: erlang
 script: "make travis"
 otp_release:
-  - 17.4
-  - 17.1
-  - 17.0
-  - R16B03-1
-  - R16B
-  - R15B03
-  - R15B
-before_script: "sudo apt-get --yes --force-yes install libpam0g-dev"
+  - 21.0.5
+  - 20.3
+  - 19.3.6
+  - 18.3
+  - 17.5
+
+addons:
+    apt:
+        packages:
+            - libpam0g-dev
+            - libpam-runtime

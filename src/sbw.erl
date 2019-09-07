@@ -26,6 +26,8 @@
     request_method/1,
 
     headers/1,
+    headers_list/1,
+    headers_map/1,
     header/2,
     header_lower/2,
 
@@ -68,10 +70,13 @@
 %% RESPONSE BRIDGE EXPORTS
 -export([
     set_status_code/2,
+    get_status_code/1,
+
     set_header/3,
     get_response_header/2,
     clear_headers/1,
     set_cookie/3,
+    set_cookie/4,
     set_cookie/5,
     clear_cookies/1,
     set_response_data/2,
@@ -100,7 +105,7 @@ new(Mod, Req) ->
     %% do it for us. See simple_bridge:make_nocatch/2
     Bridge2 = cache_headers(Bridge),
     Bridge3 = cache_query_params(Bridge2),
-    _Bridge4 = cache_cookies(Bridge3).
+    cache_cookies(Bridge3).
 
 
 set_multipart(PostParams, PostFiles, Wrapper) ->
@@ -113,12 +118,39 @@ set_multipart(PostParams, PostFiles, Wrapper) ->
 %% PRECACHING HEADERS, POST PARAMS AND QUERY PARAMS
 %% So we don't have to convert to and from binary/lists/atom for different
 %% backends. We do it once per request.
-
+%% Experimenting with caching the headers as maps
+%% Something to consider here is that the normalize_headers function looks at binaries/lists 
 cache_headers(Wrapper) ->
     Mod = Wrapper#sbw.mod,
     Req = Wrapper#sbw.req,
-    FormattedHeaders = [normalize_header({K,V}) || {K,V} <- Mod:headers(Req), V=/=undefined],
+    FormattedHeaders = cache_headers_by_type(Req, Mod),
     Wrapper#sbw{headers=FormattedHeaders}.
+
+cache_headers_by_type(Req, Mod) ->
+    case Mod:native_header_type() of
+        map ->
+            cache_headers_map(Req, Mod);
+        list ->
+            cache_headers_list(Req, Mod)
+    end.
+
+cache_headers_map(Req, Mod) ->
+    Headers = Mod:headers(Req),
+    HeadersList = maps:to_list(Headers),
+    normalize_headers(HeadersList).
+    %error_logger:info_msg("Raw Header: ~p",[Headers]),
+    %%% filter out undefineds, we don't care about them
+    %Filtered = maps:filter(fun(_K, V) -> V =/= undefined end, Headers),
+    %%% format the headers
+    %maps:map(fun(K,V) -> normalize_header({K,V}) end, Filtered).
+
+cache_headers_list(Req, Mod) ->
+    Headers = Mod:headers(Req),
+    normalize_headers(Headers).
+
+normalize_headers(Headers) ->
+    ListHeaders = [normalize_header(Header) || Header={_K,V} <- Headers, V =/= undefined],
+    maps:from_list(ListHeaders).
 
 cache_cookies(Wrapper) ->
     Mod = Wrapper#sbw.mod,
@@ -144,9 +176,8 @@ cache_query_params(Wrapper) ->
     Mod = Wrapper#sbw.mod,
     Req = Wrapper#sbw.req,
     Wrapper#sbw{
-        query_params=[normalize_param(Param) || Param <- Mod:query_params(Req)]
+      query_params=[normalize_param({K,V}) || {K,V} <- Mod:query_params(Req)]
     }.
-
 
 normalize_param({K, V}) ->  
     {simple_bridge_util:to_binary(K), simple_bridge_util:to_binary(V)}.
@@ -209,13 +240,19 @@ post_files(Wrapper) ->
 %% REQUEST HEADERS
 
 headers(Wrapper) ->
+    headers_map(Wrapper).
+
+headers_map(Wrapper) ->
     Wrapper#sbw.headers.
+
+headers_list(Wrapper) ->
+    maps:to_list(Wrapper#sbw.headers).
 
 header(Header, Wrapper) ->
     BinHeader = simple_bridge_util:binarize_header(Header),
-    case lists:keyfind(BinHeader, 1, Wrapper#sbw.headers) of
-        false -> undefined;
-        {_, Val} ->
+    case maps:find(BinHeader, Wrapper#sbw.headers) of
+        error -> undefined;
+        {ok, Val} ->
             if  is_list(Header);
                 is_atom(Header)   -> binary_to_list(Val);
                 is_binary(Header) -> Val
@@ -313,7 +350,7 @@ find_param(Param, Default, ParamList) when is_binary(Param) ->
     end;
 find_param(Param, Default, ParamList) when is_atom(Param); is_list(Param) ->
     Param1 = simple_bridge_util:to_binary(Param),
-    simple_bridge_util:to_list(find_param(Param1, Default, ParamList)).
+    simple_bridge_util:maybe_to_list(find_param(Param1, Default, ParamList)).
 
 
 find_param_group(Param, Default, ParamList) when is_binary(Param) ->
@@ -398,6 +435,9 @@ set_status_code(StatusCode, Wrapper) ->
         Res#response{status_code=StatusCode}
     end, Wrapper).
 
+get_status_code(Wrapper) ->
+    (Wrapper#sbw.response)#response.status_code.
+
 set_header(Name0, Value, Wrapper) ->
     Name = simple_bridge_util:binarize_header(Name0),
     update_response(fun(Res) ->
@@ -423,16 +463,26 @@ clear_headers(Wrapper) ->
     end, Wrapper).
 
 set_cookie(Name, Value, Wrapper) ->
-    set_cookie(Name, Value, "/", 20, Wrapper).
+    set_cookie(Name, Value, [], Wrapper).
 
-set_cookie(Name, Value, Path, MinutesToLive, Wrapper) ->
+set_cookie(Name, Value, Options, Wrapper) ->
     update_response(fun(Res) ->
-        Cookie = #cookie { name=Name, value=Value, path=Path, minutes_to_live=MinutesToLive },
+        Cookie = #cookie { name=Name,
+                           value=Value,
+                           domain=proplists:get_value(domain, Options),
+                           path=proplists:get_value(path, Options, "/"),
+                           max_age=proplists:get_value(max_age, Options, 3600),
+                           secure=proplists:get_value(secure, Options, false),
+                           http_only=proplists:get_value(http_only, Options, false)
+                         },
         Cookies = Res#response.cookies,
         Cookies1 = [X || X <- Cookies, X#cookie.name /= Name],
         Cookies2 = [Cookie|Cookies1],
         Res#response{cookies=Cookies2}
     end, Wrapper).
+
+set_cookie(Name, Value, Path, MinutesToLive, Wrapper) ->
+    set_cookie(Name, Value, [{path, Path}, {max_age, MinutesToLive*60}], Wrapper).
 
 clear_cookies(Wrapper) ->
     update_response(fun(Res) ->

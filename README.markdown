@@ -54,15 +54,15 @@ start() ->
 run(Bridge) ->
     HTML = [
         "<h1>Hello, World!</h1>",
-        io_lib:format("METHOD: ~p~n<br><br>", [Request:request_method()]),
-        io_lib:format("COOKIES: ~p~n<br><br>", [Request:cookies()]),
-        io_lib:format("HEADERS: ~p~n<br><br>", [Request:headers()]),
-        io_lib:format("QUERY PARAMETERS: ~p~n<br><br>", [Request:query_params()])       
+        io_lib:format("METHOD: ~p~n<br><br>", [Bridge:request_method()]),
+        io_lib:format("COOKIES: ~p~n<br><br>", [Bridge:cookies()]),
+        io_lib:format("HEADERS: ~p~n<br><br>", [Bridge:headers()]),
+        io_lib:format("QUERY PARAMETERS: ~p~n<br><br>", [Bridge:query_params()])       
     ],
-    Bridge2 = Response:set_status_code(200),
-    Bridge3 = Response:set_header("Content-Type", "text/html"),
-    Bridge4 = Response2:set_response_data(HTML),
-    Bridge4:build_response().
+    Bridge2 = sbw:set_status_code(200, Bridge),
+    Bridge3 = sbw:set_header("Content-Type", "text/html", Bridge2),
+    Bridge4 = sbw:set_response_data(HTML, Bridge3),
+    sbw:build_response(Bridge4).
 ```
 
 ## A more complete example:
@@ -205,11 +205,23 @@ You can interface with it using either of two mechanisms:
 
   + Standard Erlang Calls: `sbw:function_name(Bridge)` - "sbw" is an acronym
     for (S)imple (B)ridge (W)rapper.
-  + Parameter Module Style Calls: `Bridge:function_name()`
+  + Tuple Module Calls: `Bridge:function_name()`
 
-Additionally, a Bridge provides both the Request and Response interface in a
-single object (which means you no longer have to track both a request and a
-response bridge in your application. A single bridge will do, pig.)
+**NOTE:** Tuple Module style calls were officially disabled in Erlang 21 and
+*require* you to enable tuple calls as a compile option in your module with:
+
+`-compile(tuple_calls).`
+
+This option can also be specified in your rebar.config file in the `erl_opts`
+variable with:
+
+`{erl_opts, [tuple_calls]}.`
+
+**Backwards Compatibility Note**: Simple Bridge 1.x required a separate Request
+and Response Object.  This has gone away and now a single Bridge "object"
+provides both the Request and Response interface in a single object. This means
+you no longer have to track both a request and a response bridge in your
+application. A single bridge will do, pig.
 
 ### Request Bridge Interface
 
@@ -248,7 +260,7 @@ response bridge in your application. A single bridge will do, pig.)
     conveniently interfaced with the `sb_uploaded_file` module, documented below
     in the "Uploaded File Interface" section.
   * **sbw:request_body(Bridge)** - returns the request body that has been read
-    so far, as a list.
+    so far as binary.
   * **sbw:error(Bridge)** - returns an Erlang term describing any errors that
     happened while parsing a multipart post.
 
@@ -287,6 +299,8 @@ As with the Bridge module above, all `sb_uploaded_file` objects can be reference
     element from the page.
   * **sb_uploaded_file:data(UploadedFile)** - The entire data of uploaded file. Returns `undefined`
     if file is stored as temporary file on disk.
+    
+#### Storing uploaded files in RAM rather than on disk
 
 By default uploaded files are always stored in temporary file
 `sb_uploaded_file:temp_file(UploadedFile)`.  If you want to keep the uploaded
@@ -326,9 +340,25 @@ The Bridge modules export the following functions:
   * **sbw:set_header(Name, Value, Bridge)** - set an HTTP header.
   * **sbw:clear_headers(Bridge)** - clear all previously set headers.
   * **sbw:set_cookie(Name, Value, Bridge)** - set a cookie for path "/" with expiration in
-    20 minutes.
-  * **sbw:set_cookie(Name, Value, Path, Exp, Bridge)** - Set a cookie. Exp is an integer
-    in minutes.
+    1 hour.
+  * **sbw:set_cookie(Name, Value, Options, Bridge)** - set a cookie, setting
+    HTTP Options. Options is a proplist looking something supporting the
+    options `domain`, `path`, `max_age`, `secure`, and `http_only`. Any or all can
+    be specified like below.
+
+```erlang
+	Options = [
+	   {domain, undefined},
+	   {path, "/"},
+	   {max_age, 3600}, %% time in seconds
+	   {secure, false},
+	   {http_only, false}
+	],
+	sbw:set_cookie("mycookie", "mycookievalue", Options, Bridge).
+```
+  * **sbw:set_cookie(Name, Value, Path, MinutesToLive, Bridge)**
+    *(deprecated)* - set a cookie for the defined `Path` with `MinutesToLive` to
+    define the max age of the cookie. Deprecated in favor of `sbw:set_cookie/4`.
   * **sbw:clear_cookies(Bridge)** - clear all previously set cookies.
   * **sbw:set_response_data(Data, Bridge)** - set the data to return in the response. Usually HTML
     goes here.

@@ -22,7 +22,8 @@
         request_body/1,
         socket/1,
         recv_from_socket/3,
-        protocol_version/1
+        protocol_version/1,
+        native_header_type/0
     ]).
 
 -export([
@@ -72,6 +73,9 @@ peer_port(Req) ->
                 inet:peername(Socket)
         end,
     Port.
+
+native_header_type() ->
+    list.
 
 headers(Req) ->
     Req#mod.parsed_header.
@@ -143,18 +147,9 @@ build_response(Req, Res) ->
             mod_get:do(Req)
     end.
 
-create_cookie_header(Cookie) ->
-    SecondsToLive = Cookie#cookie.minutes_to_live * 60,
-    Expire = to_cookie_expire(SecondsToLive),
-    Name = Cookie#cookie.name,
-    Value = Cookie#cookie.value,
-    Path = Cookie#cookie.path,
-    {"Set-Cookie", io_lib:format("~s=~s; Path=~s; Expires=~s", [Name, Value, Path, Expire])}.
-
-to_cookie_expire(SecondsToLive) ->
-    Seconds = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-    DateTime = calendar:gregorian_seconds_to_datetime(Seconds + SecondsToLive),
-    httpd_util:rfc1123_date(DateTime).
+create_cookie_header(Cookie = #cookie{}) ->
+    {K, V} = simple_bridge_util:create_cookie_header(Cookie),
+    {binary_to_list(K), V}.
 
 
 % Inets wants some headers as lowercase atoms, and the rest as lists. So let's fix these up.

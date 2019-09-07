@@ -4,6 +4,7 @@
 %% @copyright 2008-2009 Basho Technologies, Inc.
 
 -module(webmachine_simple_bridge_static).
+-include("compat.hrl").
 -export([init/1]).
 -export([ping/2,
 		 allowed_methods/2,
@@ -19,7 +20,6 @@
          generate_etag/2]).
 
 -record(context, {root,response_body=undefined,metadata=[]}).
--include("crypto_compat.hrl").
 
 ping(Req, State) ->
 	{pong, Req, State}.

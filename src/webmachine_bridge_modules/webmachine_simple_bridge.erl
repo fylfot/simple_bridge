@@ -23,7 +23,8 @@
         request_body/1,
         socket/1,
         recv_from_socket/3,
-        protocol_version/1
+        protocol_version/1,
+        native_header_type/0
     ]).
 
 -export([
@@ -55,6 +56,9 @@ peer_port(Req) ->
 headers(Req) ->
     Mochiheaders = wrq:req_headers(Req),
     mochiweb_headers:to_list(Mochiheaders).
+
+native_header_type() ->
+    list.
 
 cookies(Req) ->
     wrq:req_cookie(Req).
@@ -133,14 +137,4 @@ build_response(Req, Res) ->
     end.
 
 create_cookie_header(Cookie) ->
-    SecondsToLive = Cookie#cookie.minutes_to_live * 60,
-    Expire = to_cookie_expire(SecondsToLive),
-    Name = Cookie#cookie.name,
-    Value = Cookie#cookie.value,
-    Path = Cookie#cookie.path,
-    {"Set-Cookie", io_lib:format("~s=~s; Path=~s; Expires=~s", [Name, Value, Path, Expire])}.
-
-to_cookie_expire(SecondsToLive) ->
-    Seconds = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-    DateTime = calendar:gregorian_seconds_to_datetime(Seconds + SecondsToLive),
-    httpd_util:rfc1123_date(DateTime).
+    simple_bridge_util:create_cookie_header(Cookie).

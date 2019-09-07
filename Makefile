@@ -49,7 +49,11 @@ run:
 
 ##### COMMON TEST
 
-test: test_cowboy test_inets test_mochiweb test_webmachine test_yaws
+test: test_cowboy test_nocowboy
+
+## Cowboy doesn't support < Erlang 19
+test_nocowboy: test_inets test_mochiweb test_webmachine test_yaws
+
 
 test_cowboy:
 	(make test_core BACKEND=cowboy)
@@ -68,6 +72,13 @@ test_yaws:
 
 clean_test:
 	(rm -f rebar.test.*.config)
+	(rm -f test/*.beam)
+
+test_quick:
+	./rebar --config "rebar.test.$(BACKEND).config" clean
+	./rebar --config "rebar.test.$(BACKEND).config" get-deps
+	./rebar --config "rebar.test.$(BACKEND).config" compile
+	./rebar --config "rebar.test.$(BACKEND).config" skip_deps=true ct
 
 test_core: clean clean_test
 	(escript rebar_deps/merge_deps.escript rebar.test.config rebar_deps/$(BACKEND).deps rebar.test.$(BACKEND).config)
@@ -103,8 +114,8 @@ ERLANG_VERSION = $(shell $(ERLANG_VERSION_CHECK))
 # This is primarily for Travis build testing, as each build instruction will overwrite the previous
 travis: compile $(ERLANG_VERSION)
 
-R15B: dialyzer
-R15B03: dialyzer
-R16B: dialyzer
-R16B03-1: dialyzer
-17: dialyzer
+17: test_nocowboy dialyzer
+18: test_nocowboy dialyzer
+19: test dialyzer
+20: test dialyzer
+21: test dialyzer

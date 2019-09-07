@@ -55,15 +55,18 @@ parse_multipart(Req) ->
     try
         Boundary = get_multipart_boundary(Req),
         Length = get_content_length(Req),
-        ok = crash_if_too_big(Length),
+        ok = crash_if_too_big(Length, #state{parts = [], req=Req}),
         Data = get_opening_body(Req), 
         State = init_state(Req, Boundary, Length, Data),
         State1 = read_boundary(Data, State),
         {Params, Files} = process_parts(State1#state.parts),
         {ok, Params, Files}
     catch
-        throw : post_too_big -> {error, post_too_big};
-        throw : {file_too_big, FileName} -> {error, {file_too_big, FileName}}
+        throw : {Reason, ErrState} ->
+            lists:foreach(fun(Part) ->
+                file:delete(Part#sb_uploaded_file.temp_file)
+            end, convert_parts_to_files(ErrState#state.parts)),
+            {error, Reason}
     end.
 
 get_content_length(Req) ->
@@ -88,11 +91,33 @@ init_state(Req, Boundary, Length, Data) ->
         parts = []
     }.
 
-crash_if_too_big(Length) ->
+crash_if_too_big(Length, State) ->
     case Length > get_max_post_size() of
-        true  -> throw(post_too_big);
+        true  ->
+            %flush_socket(State),
+            throw({post_too_big, State});
         false -> ok
     end.
+
+%% THis is just here for experiments. Not really used.
+%flush_socket(_State = #state{req=Req}) ->
+%    error_logger:info_msg("Flushing Socket: ~p",[Req]),
+%    try flush_worker(Req)
+%    catch Error:Reason -> error_logger:info_msg("Flush ended in Error: ~p:~p.~nsbw: ~p~nStacktrace: ~p", [Error, Reason, Req, erlang:get_stacktrace()]), ok
+%    end.
+%
+%
+%flush_worker(Req) ->
+%    case sbw:recv_from_socket(?CHUNKSIZE, 10, Req) of
+%        <<>> -> 
+%            error_logger:info_msg("All Data Flushed"),
+%            ok;
+%        _Data ->
+%            error_logger:info_msg("Flushed ~p bytes",[byte_size(_Data)]),
+%            flush_worker(Req)
+%    end.
+    
+
 
 process_parts(Parts) ->
     Params = convert_parts_to_params(Parts),
@@ -165,7 +190,12 @@ read_part_value(Data, Part, State = #state { boundary=Boundary }) ->
             read_part_header(Data1, #part {}, State2);
         A when A == start_value orelse A == continue ->
             % Write the line, then continue...  
-            Part2 = update_part_with_value(Line, true, Part1),
+            Part2 =
+            try
+                update_part_with_value(Line, true, Part1)
+            catch
+                throw : Reason -> throw({Reason, State})
+            end,
             read_part_value(Data1, Part2, State1);
         eof ->
             update_state_with_part(Part1, State1)
@@ -204,14 +234,19 @@ get_next_line(Data, Part, State)    -> get_next_line(Data, <<>>, Part, State).
 get_next_line(<<?NEWLINE, Data/binary>>, Acc, Part, State) -> {<<Acc/binary>>, Data, Part, State};
 get_next_line(<<C, Data/binary>>, Acc, Part, State) -> get_next_line(Data, <<Acc/binary, C>>, Part, State);
 get_next_line(Data, Acc, Part, State) when Data == undefined orelse Data == <<>> ->
-    {Data1, State1} = read_chunk(State),
-
-    % We don't want Acc to grow too big, so if we have more than ?CHUNKSIZE 
-    % data already read, then flush it to the current part.
-    {Acc1, Part1} = case Part /= undefined andalso size(Acc) > ?CHUNKSIZE of
-                        true -> {<<>>, update_part_with_value(Acc, false, Part)};
-                        false -> {Acc, Part}
-                    end,
+    {Data1, State1, Acc1, Part1} =
+    try
+        {TmpData1, TmpState1} = read_chunk(State),
+        % We don't want Acc to grow too big, so if we have more than ?CHUNKSIZE
+        % data already read, then flush it to the current part.
+        {TmpAcc1, TmpPart1} = case Part /= undefined andalso size(Acc) > ?CHUNKSIZE of
+                                  true -> {<<>>, update_part_with_value(Acc, false, Part)};
+                                  false -> {Acc, Part}
+                              end,
+        {TmpData1, TmpState1, TmpAcc1, TmpPart1}
+    catch
+        throw : Reason -> throw({Reason, State})
+    end,
     % it into a part.
     get_next_line(Data1, Acc1, Part1, State1).
 
@@ -219,7 +254,7 @@ read_chunk(State = #state { req=Req, length=Length, bytes_read=BytesRead }) ->
     BytesToRead = lists:min([Length - BytesRead, ?CHUNKSIZE]),
     Data = sbw:recv_from_socket(BytesToRead, ?IDLE_TIMEOUT, Req),
     NewBytesRead = BytesRead + size(Data),
-    ok=crash_if_too_big(NewBytesRead),
+    ok=crash_if_too_big(NewBytesRead, State),
     {Data, State#state { bytes_read=NewBytesRead }}.
 
 interpret_line(Line, Boundary) ->
@@ -231,7 +266,8 @@ interpret_line(Line, Boundary) ->
     end.
 
 
-parse_header(B) when is_binary(B) -> parse_header(binary_to_list(B));
+parse_header(B) when is_binary(B) ->
+    parse_header(unicode:characters_to_list(B));
 parse_header(String) ->
     [First|Rest] = [string:strip(S) || S <- string:tokens(String, ";")],
     {Name, Value} = parse_keyvalue($:, First),

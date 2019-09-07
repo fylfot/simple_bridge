@@ -23,11 +23,15 @@
 -callback request_method(req())              -> 'GET' | 'POST' | 'DELETE' | atom().
 -callback uri(req())                         -> string().
 -callback path(req())                        -> string().
--callback headers(req())                     -> [{key(), value()}].
+-callback headers(req())                     -> [{key(), value()}] | map().
 -callback query_params(req())                -> [{key(), value()}].
 -callback post_params(req())                 -> [{key(), value()}].
 -callback peer_ip(req())                     -> ipv4() | ipv8().
 -callback build_response(req(), #response{}) -> any().
+-callback native_header_type()               -> map | list.
+
+%% This type is defined in simple_bridge.hrl
+-export_type([bridge/0]).
 
 start() ->
     start(undefined).
@@ -86,6 +90,8 @@ inner_make(Module, RequestData) ->
         make_nocatch(Module, RequestData)
     catch Type : Error ->
         error_logger:error_msg("Error in simple_bridge:make/2 - ~p - ~p~n~p", [Type, Error, erlang:get_stacktrace()]),
+        error_logger:info_msg("Type: ~p",[Type]),
+        error_logger:info_msg("Error: ~p",[Error]),
         erlang:Type(Error)
     end.
 
@@ -106,7 +112,8 @@ make_nocatch(Module, RequestData) ->
                 error:function_clause -> Bridge
             end;
         {error, Error} -> 
-            Bridge:set_error(Error)
+            error_logger:error_msg("Error in Multipart: ~p",[Error]),
+            sbw:set_error(Error, Bridge)
     end.
 
 
